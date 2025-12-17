@@ -1,0 +1,244 @@
+# ArrayFire Multi-Backend Builder for Debian
+# Supports: Debian 11/12/13
+# Args: DEBIAN_VERSION, BACKEND, ARCH
+ARG DEBIAN_VERSION=12
+ARG BACKEND=all
+ARG ARCH=amd64
+
+FROM debian:${DEBIAN_VERSION}-slim AS builder
+
+ARG DEBIAN_VERSION
+ARG BACKEND=all
+ARG ARCH=amd64
+ARG ARRAYFIRE_VERSION=3.10
+ARG ARRAYFIRE_RELEASE=v3.10.0
+
+# Install base build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    ca-certificates \
+    pkg-config \
+    ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install common base dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libboost-dev \
+    libboost-system-dev \
+    libboost-stacktrace-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Conditional dependencies based on BACKEND
+# CPU backend
+RUN if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "cpu" ]; then \
+    apt-get update && apt-get install -y --no-install-recommends \
+    libopenblas-dev \
+    liblapack-dev \
+    liblapacke-dev \
+    libfftw3-dev \
+    libfftw3-mpi-dev \
+    && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# CUDA backend
+RUN if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "cuda" ]; then \
+    apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common && \
+    apt-get install -y --no-install-recommends \
+    nvidia-cuda-toolkit \
+    nvidia-cuda-dev \
+    libcublas-dev \
+    libcufft-dev \
+    libcusolver-dev \
+    libcusparse-dev \
+    && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# OpenCL backend
+RUN if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "opencl" ]; then \
+    apt-get update && apt-get install -y --no-install-recommends \
+    libboost-program-options-dev \
+    libboost-compute-dev \
+    opencl-headers \
+    ocl-icd-libopencl1 \
+    ocl-icd-dev \
+    && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# oneAPI backend (Intel SYCL)
+RUN if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "oneapi" ]; then \
+    apt-get update && apt-get install -y --no-install-recommends \
+    wget && \
+    wget -qO - https://repositories.intel.com/graphics/intel-graphics.key | apt-key add - && \
+    echo "deb [arch=amd64] https://repositories.intel.com/graphics/ubuntu jammy main" | \
+    tee /etc/apt/sources.list.d/intel-graphics.sources && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    intel-oneapi-dpcpp-cpp-compiler \
+    intel-oneapi-mkl-devel \
+    intel-oneapi-tbb-devel \
+    && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# Install optional dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libfreeimage-dev \
+    doxygen \
+    graphviz \
+    ccache \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure ccache (10GB cache limit)
+RUN mkdir -p /root/.ccache && \
+    echo "max_size = 10G" >> /root/.ccache/ccache.conf && \
+    echo "compression = true" >> /root/.ccache/ccache.conf
+
+# Clone ArrayFire
+WORKDIR /src
+RUN git clone --depth 1 --branch ${ARRAYFIRE_RELEASE} \
+    https://github.com/arrayfire/arrayfire.git
+
+WORKDIR /src/arrayfire
+
+# Create build directory
+RUN mkdir -p build
+
+# Configure based on backend
+RUN if [ "${BACKEND}" = "all" ]; then \
+    cmake -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    -DAF_BUILD_CPU=ON \
+    -DAF_BUILD_CUDA=ON \
+    -DAF_BUILD_OPENCL=ON \
+    -DAF_BUILD_ONEAPI=OFF \
+    -DAF_COMPUTE_LIBRARY=FFTW \
+    -DAF_WITH_CUDNN=OFF \
+    -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_TESTS=ON \
+    -DAF_BUILD_DOCS=OFF \
+    -DAF_WITH_LOGGING=ON \
+    -DCMAKE_INSTALL_PREFIX=/opt/arrayfire; \
+    elif [ "${BACKEND}" = "cpu" ]; then \
+    cmake -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    -DAF_BUILD_CPU=ON \
+    -DAF_BUILD_CUDA=OFF \
+    -DAF_BUILD_OPENCL=OFF \
+    -DAF_BUILD_ONEAPI=OFF \
+    -DAF_COMPUTE_LIBRARY=FFTW \
+    -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_TESTS=ON \
+    -DAF_BUILD_DOCS=OFF \
+    -DCMAKE_INSTALL_PREFIX=/opt/arrayfire; \
+    elif [ "${BACKEND}" = "cuda" ]; then \
+    cmake -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    -DAF_BUILD_CPU=OFF \
+    -DAF_BUILD_CUDA=ON \
+    -DAF_BUILD_OPENCL=OFF \
+    -DAF_BUILD_ONEAPI=OFF \
+    -DAF_WITH_CUDNN=OFF \
+    -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_TESTS=ON \
+    -DAF_BUILD_DOCS=OFF \
+    -DCMAKE_INSTALL_PREFIX=/opt/arrayfire; \
+    elif [ "${BACKEND}" = "opencl" ]; then \
+    cmake -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    -DAF_BUILD_CPU=OFF \
+    -DAF_BUILD_CUDA=OFF \
+    -DAF_BUILD_OPENCL=ON \
+    -DAF_BUILD_ONEAPI=OFF \
+    -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_TESTS=ON \
+    -DAF_BUILD_DOCS=OFF \
+    -DCMAKE_INSTALL_PREFIX=/opt/arrayfire; \
+    elif [ "${BACKEND}" = "oneapi" ]; then \
+    . /opt/intel/oneapi/setvars.sh && \
+    cmake -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    -DAF_BUILD_CPU=OFF \
+    -DAF_BUILD_CUDA=OFF \
+    -DAF_BUILD_OPENCL=OFF \
+    -DAF_BUILD_ONEAPI=ON \
+    -DAF_COMPUTE_LIBRARY=Intel-MKL \
+    -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_TESTS=ON \
+    -DAF_BUILD_DOCS=OFF \
+    -DCMAKE_INSTALL_PREFIX=/opt/arrayfire; \
+    fi
+
+# Build
+RUN cd /src/arrayfire/build && \
+    export PATH="/usr/lib/ccache:$PATH" && \
+    cmake --build . -j$(( $(nproc) + 1 )) --parallel $(( $(nproc) + 1 ))
+
+# Install
+RUN cd /src/arrayfire/build && cmake --install .
+
+# Package stage
+FROM debian:${DEBIAN_VERSION}-slim AS packager
+
+ARG DEBIAN_VERSION
+ARG BACKEND=all
+ARG ARCH=amd64
+ARG ARRAYFIRE_VERSION=3.10
+
+# Install packaging tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fakeroot \
+    dpkg-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy built artifacts
+COPY --from=builder /opt/arrayfire /opt/arrayfire
+
+WORKDIR /pkg
+
+# Determine architecture for .deb
+RUN case "${ARCH}" in \
+    amd64) DEB_ARCH="amd64" ;; \
+    arm64) DEB_ARCH="arm64" ;; \
+    *) DEB_ARCH="$(dpkg --print-architecture)" ;; \
+    esac && echo "$DEB_ARCH" > /tmp/deb_arch
+
+# Create package structure
+RUN ARCH_VAL=$(cat /tmp/deb_arch) && \
+    mkdir -p arrayfire-${BACKEND}_${ARRAYFIRE_VERSION}_${ARCH_VAL}/DEBIAN && \
+    mkdir -p arrayfire-${BACKEND}_${ARRAYFIRE_VERSION}_${ARCH_VAL}/opt/arrayfire && \
+    cp -r /opt/arrayfire/* arrayfire-${BACKEND}_${ARRAYFIRE_VERSION}_${ARCH_VAL}/opt/arrayfire/ && \
+    DEB_ARCH=$ARCH_VAL && \
+    cat > arrayfire-${BACKEND}_${ARRAYFIRE_VERSION}_${ARCH_VAL}/DEBIAN/control <<EOF
+Package: arrayfire-${BACKEND}
+Version: ${ARRAYFIRE_VERSION}
+Architecture: $ARCH_VAL
+Maintainer: ArrayFire Development Team <support@arrayfire.com>
+Homepage: https://arrayfire.com
+Description: ArrayFire - Accelerated Compute Library
+ ArrayFire is a high performance software library for parallel
+ computing with an easy-to-use API. It enables users to write
+ scientific computing code that is portable across different
+ devices and backends. ${BACKEND} backend.
+EOF
+
+# Build .deb package
+RUN ARCH_VAL=$(cat /tmp/deb_arch) && \
+    dpkg-deb --build arrayfire-${BACKEND}_${ARRAYFIRE_VERSION}_${ARCH_VAL} && \
+    ls -lh arrayfire-${BACKEND}_${ARRAYFIRE_VERSION}_${ARCH_VAL}.deb
+
+# Final stage - output for local builds
+FROM scratch AS exporter
+
+COPY --from=packager /pkg/arrayfire-*.deb /

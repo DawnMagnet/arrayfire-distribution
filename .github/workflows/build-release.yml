@@ -1,0 +1,293 @@
+name: ArrayFire Build & Release
+
+on:
+  # Build on push to main with docker changes
+  push:
+    branches:
+      - main
+    paths:
+      - "docker/**"
+      - ".github/workflows/build-release.yml"
+
+  # Manual trigger (optional)
+  workflow_dispatch:
+    inputs:
+      build_full:
+        description: "Build full matrix (takes ~4 hours)"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  REGISTRY_USER: dawnmagnet
+  ARRAYFIRE_VERSION: 3.10
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  # Prepare build matrix
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      build_id: ${{ steps.gen-build-id.outputs.build_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate build ID
+        id: gen-build-id
+        run: echo "build_id=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+
+      - name: Determine build matrix
+        id: set-matrix
+        run: |
+          # MVP matrix (default)
+          MVP='[
+            {"distro": "debian", "version": "12", "backend": "all", "arch": "amd64"},
+            {"distro": "debian", "version": "12", "backend": "all", "arch": "arm64"},
+            {"distro": "debian", "version": "12", "backend": "cpu", "arch": "amd64"},
+            {"distro": "debian", "version": "12", "backend": "cpu", "arch": "arm64"},
+            {"distro": "debian", "version": "12", "backend": "cuda", "arch": "amd64"},
+            {"distro": "debian", "version": "12", "backend": "opencl", "arch": "amd64"},
+            {"distro": "debian", "version": "12", "backend": "opencl", "arch": "arm64"},
+            {"distro": "rhel", "version": "9", "backend": "all", "arch": "amd64"},
+            {"distro": "rhel", "version": "9", "backend": "cuda", "arch": "amd64"}
+          ]'
+
+          # Full matrix (extended)
+          FULL='[
+            {"distro": "debian", "version": "11", "backend": "all", "arch": "amd64"},
+            {"distro": "debian", "version": "11", "backend": "all", "arch": "arm64"},
+            {"distro": "debian", "version": "11", "backend": "cpu", "arch": "amd64"},
+            {"distro": "debian", "version": "11", "backend": "cpu", "arch": "arm64"},
+            {"distro": "debian", "version": "11", "backend": "cuda", "arch": "amd64"},
+            {"distro": "debian", "version": "11", "backend": "opencl", "arch": "amd64"},
+            {"distro": "debian", "version": "12", "backend": "all", "arch": "amd64"},
+            {"distro": "debian", "version": "12", "backend": "all", "arch": "arm64"},
+            {"distro": "debian", "version": "12", "backend": "cpu", "arch": "amd64"},
+            {"distro": "debian", "version": "12", "backend": "cpu", "arch": "arm64"},
+            {"distro": "debian", "version": "12", "backend": "cuda", "arch": "amd64"},
+            {"distro": "debian", "version": "12", "backend": "opencl", "arch": "amd64"},
+            {"distro": "debian", "version": "12", "backend": "opencl", "arch": "arm64"},
+            {"distro": "debian", "version": "13", "backend": "all", "arch": "amd64"},
+            {"distro": "debian", "version": "13", "backend": "all", "arch": "arm64"},
+            {"distro": "rhel", "version": "8", "backend": "all", "arch": "amd64"},
+            {"distro": "rhel", "version": "9", "backend": "all", "arch": "amd64"},
+            {"distro": "rhel", "version": "9", "backend": "cuda", "arch": "amd64"},
+            {"distro": "rhel", "version": "10", "backend": "all", "arch": "amd64"}
+          ]'
+
+          # Determine which matrix to use
+          if [[ "${{ github.event.inputs.build_full }}" == "true" ]]; then
+            echo "matrix={\"include\":$FULL}" >> $GITHUB_OUTPUT
+            echo "Building full matrix"
+          else
+            echo "matrix={\"include\":$MVP}" >> $GITHUB_OUTPUT
+            echo "Building MVP matrix"
+          fi
+
+  # Build packages
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+      fail-fast: false
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          version: latest
+          buildkitd-flags: --allow-insecure-entitlement security.insecure
+
+      - name: Generate image metadata
+        id: meta
+        run: |
+          TARGET="${{ matrix.distro }}${{ matrix.version }}-${{ matrix.backend }}-${{ matrix.arch }}"
+          IMAGE_NAME="${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/arrayfire-${{ matrix.backend }}"
+          IMAGE_TAG="${{ env.ARRAYFIRE_VERSION }}-${{ matrix.distro }}${{ matrix.version }}-${{ matrix.arch }}"
+
+          echo "target=$TARGET" >> $GITHUB_OUTPUT
+          echo "image_name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "full_image=$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.REGISTRY_USER }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set Dockerfile and version arg
+        id: dockerfile
+        run: |
+          if [ "${{ matrix.distro }}" = "debian" ]; then
+            echo "dockerfile=docker/Dockerfile.debian" >> $GITHUB_OUTPUT
+            echo "version_arg=DEBIAN_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "dockerfile=docker/Dockerfile.rhel" >> $GITHUB_OUTPUT
+            echo "version_arg=RHEL_VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and extract packages
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ steps.dockerfile.outputs.dockerfile }}
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            ${{ steps.dockerfile.outputs.version_arg }}=${{ matrix.version }}
+            BACKEND=${{ matrix.backend }}
+            ARCH=${{ matrix.arch }}
+            ARRAYFIRE_VERSION=${{ env.ARRAYFIRE_VERSION }}
+            ARRAYFIRE_RELEASE=v${{ env.ARRAYFIRE_VERSION }}.0
+          outputs: type=local,dest=./build-output/${{ steps.meta.outputs.target }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: List generated packages
+        run: |
+          echo "Generated packages for ${{ steps.meta.outputs.target }}:"
+          find ./build-output -type f \( -name "*.deb" -o -name "*.rpm" \) -exec ls -lh {} \;
+
+      - name: Upload packages as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ steps.meta.outputs.target }}
+          path: |
+            ./build-output/**/*.deb
+            ./build-output/**/*.rpm
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Push container image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ steps.dockerfile.outputs.dockerfile }}
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            ${{ steps.dockerfile.outputs.version_arg }}=${{ matrix.version }}
+            BACKEND=${{ matrix.backend }}
+            ARCH=${{ matrix.arch }}
+            ARRAYFIRE_VERSION=${{ env.ARRAYFIRE_VERSION }}
+            ARRAYFIRE_RELEASE=v${{ env.ARRAYFIRE_VERSION }}.0
+          tags: |
+            ${{ steps.meta.outputs.full_image }}
+            ${{ steps.meta.outputs.image_name }}:latest-${{ matrix.arch }}
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Collect and publish artifacts
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    if: always()
+
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-packages
+
+      - name: List collected packages
+        run: |
+          echo "All collected packages:"
+          find all-packages -type f \( -name "*.deb" -o -name "*.rpm" \) -exec ls -lh {} \; | head -20
+          echo ""
+          echo "Total packages:"
+          find all-packages -type f \( -name "*.deb" -o -name "*.rpm" \) | wc -l
+
+      - name: Create release
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: arrayfire-${{ env.ARRAYFIRE_VERSION }}-${{ needs.prepare.outputs.build_id }}
+          name: ArrayFire ${{ env.ARRAYFIRE_VERSION }} Release - ${{ needs.prepare.outputs.build_id }}
+          body: |
+            # ArrayFire ${{ env.ARRAYFIRE_VERSION }} Build Release
+
+            **Build ID:** ${{ needs.prepare.outputs.build_id }}
+            **Build Date:** ${{ github.event.head_commit.timestamp }}
+
+            ## Generated Packages
+
+            This release contains pre-built ArrayFire packages for multiple distributions and architectures.
+
+            ### Distributions
+            - Debian 11/12/13 (amd64, arm64)
+            - RHEL/CentOS 8/9/10 (amd64)
+
+            ### Backends
+            - **all**: All supported backends (CPU, CUDA, OpenCL)
+            - **cpu**: CPU backend only (all architectures)
+            - **cuda**: CUDA backend (amd64 only)
+            - **opencl**: OpenCL backend
+            - **oneapi**: Intel oneAPI/SYCL backend
+
+            ### Installation
+
+            **Debian/Ubuntu:**
+            ```bash
+            sudo dpkg -i arrayfire-<backend>_<version>_<arch>.deb
+            ```
+
+            **RHEL/CentOS:**
+            ```bash
+            sudo rpm -ivh arrayfire-<backend>-<version>.<arch>.rpm
+            ```
+
+            ### Container Images
+
+            All builds are also available as container images on GitHub Container Registry:
+
+            ```bash
+            docker pull ghcr.io/${{ env.REGISTRY_USER }}/arrayfire-<backend>:<version>-<distro><version>-<arch>
+            ```
+
+            Example:
+            ```bash
+            docker pull ghcr.io/${{ env.REGISTRY_USER }}/arrayfire-cuda:3.10-debian12-amd64
+            ```
+          draft: false
+          files: |
+            all-packages/**/*.deb
+            all-packages/**/*.rpm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build summary
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ env.ARRAYFIRE_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Build ID:** ${{ needs.prepare.outputs.build_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          DEB_COUNT=$(find all-packages -name "*.deb" -type f | wc -l)
+          RPM_COUNT=$(find all-packages -name "*.rpm" -type f | wc -l)
+
+          echo "**Packages Generated:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Debian packages (.deb): $DEB_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- RPM packages (.rpm): $RPM_COUNT" >> $GITHUB_STEP_SUMMARY

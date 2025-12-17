@@ -1,0 +1,133 @@
+# ArrayFire Docker Build Configuration Matrix
+# Defines all supported platform combinations
+
+arrayfire:
+  version: "3.10"
+  release: "v3.10.0"
+  repo: "https://github.com/arrayfire/arrayfire.git"
+
+platforms:
+  debian:
+    versions: [11, 12, 13]
+    distributions:
+      debian:11:
+        name: "Debian 11 (Bullseye)"
+        dockerfile: "Dockerfile.debian"
+      debian:12:
+        name: "Debian 12 (Bookworm)"
+        dockerfile: "Dockerfile.debian"
+      debian:13:
+        name: "Debian 13 (Trixie)"
+        dockerfile: "Dockerfile.debian"
+
+  rhel:
+    versions: [8, 9, 10]
+    distributions:
+      rhel:8:
+        name: "RHEL 8 (Stream)"
+        dockerfile: "Dockerfile.rhel"
+      rhel:9:
+        name: "RHEL 9 (Stream)"
+        dockerfile: "Dockerfile.rhel"
+      rhel:10:
+        name: "RHEL 10 (Stream)"
+        dockerfile: "Dockerfile.rhel"
+
+architectures:
+  - amd64
+  - arm64
+
+backends:
+  all:
+    display_name: "All Backends (CPU + CUDA + OpenCL)"
+    dependencies: ["cpu", "cuda", "opencl"]
+    cmake_options:
+      AF_BUILD_CPU: ON
+      AF_BUILD_CUDA: ON
+      AF_BUILD_OPENCL: ON
+      AF_BUILD_ONEAPI: OFF
+      AF_COMPUTE_LIBRARY: FFTW
+    package_name: "arrayfire-all"
+
+  cpu:
+    display_name: "CPU Backend"
+    dependencies: ["openblas", "fftw", "lapack"]
+    cmake_options:
+      AF_BUILD_CPU: ON
+      AF_BUILD_CUDA: OFF
+      AF_BUILD_OPENCL: OFF
+      AF_BUILD_ONEAPI: OFF
+      AF_COMPUTE_LIBRARY: FFTW
+    package_name: "arrayfire-cpu"
+
+  cuda:
+    display_name: "CUDA Backend"
+    dependencies: ["cuda-toolkit", "cublas", "cufft", "cusolver", "cusparse"]
+    cmake_options:
+      AF_BUILD_CPU: OFF
+      AF_BUILD_CUDA: ON
+      AF_BUILD_OPENCL: OFF
+      AF_BUILD_ONEAPI: OFF
+      AF_WITH_CUDNN: OFF
+    package_name: "arrayfire-cuda"
+
+  opencl:
+    display_name: "OpenCL Backend"
+    dependencies: ["opencl-headers", "ocl-icd"]
+    cmake_options:
+      AF_BUILD_CPU: OFF
+      AF_BUILD_CUDA: OFF
+      AF_BUILD_OPENCL: ON
+      AF_BUILD_ONEAPI: OFF
+    package_name: "arrayfire-opencl"
+
+  oneapi:
+    display_name: "oneAPI (Intel SYCL)"
+    dependencies: ["intel-oneapi-dpcpp", "intel-oneapi-mkl", "intel-oneapi-tbb"]
+    cmake_options:
+      AF_BUILD_CPU: OFF
+      AF_BUILD_CUDA: OFF
+      AF_BUILD_OPENCL: OFF
+      AF_BUILD_ONEAPI: ON
+      AF_COMPUTE_LIBRARY: Intel-MKL
+    package_name: "arrayfire-oneapi"
+
+# MVP (Minimum Viable Product) - Core combinations to build first
+mvp_matrix:
+  - distro: debian
+    version: 12
+    backend: all
+    architectures: [amd64, arm64]
+
+  - distro: debian
+    version: 12
+    backend: cpu
+    architectures: [amd64, arm64]
+
+  - distro: debian
+    version: 12
+    backend: cuda
+    architectures: [amd64]
+
+  - distro: debian
+    version: 12
+    backend: opencl
+    architectures: [amd64, arm64]
+
+  - distro: rhel
+    version: 9
+    backend: all
+    architectures: [amd64]
+
+  - distro: rhel
+    version: 9
+    backend: cuda
+    architectures: [amd64]
+
+# Full matrix - Extended builds (after MVP stabilization)
+full_matrix:
+  distros:
+    - debian: [11, 12, 13]
+    - rhel: [8, 9, 10]
+  backends: [all, cpu, cuda, opencl, oneapi]
+  architectures: [amd64, arm64]

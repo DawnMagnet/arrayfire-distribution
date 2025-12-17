@@ -1,0 +1,36 @@
+# Docker build outputs
+docker/output/
+docker/build-output/
+docker/.dockerignore
+
+# Build artifacts
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CPackConfig.cmake
+CPackSourceConfig.cmake
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# Cache
+.cache/
+*.cache
+
+# Local development
+local-build/
+test-output/
+
+
+docker/output

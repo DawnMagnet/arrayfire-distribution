@@ -1,0 +1,98 @@
+version: '3.9'
+
+services:
+  # Debian 12 - All backends - amd64
+  debian12-all-amd64:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.debian
+      args:
+        DEBIAN_VERSION: "12"
+        BACKEND: "all"
+        ARCH: "amd64"
+        ARRAYFIRE_VERSION: "3.10"
+        ARRAYFIRE_RELEASE: "v3.10.0"
+    image: arrayfire:debian12-all-amd64
+    volumes:
+      - ./docker/output/debian12-all-amd64:/output
+    command: "sh -c 'cp -r /opt/arrayfire/* /output/ 2>/dev/null; find / -name \"*.deb\" -o -name \"*.rpm\" | xargs -I {} cp {} /output/ 2>/dev/null || true'"
+
+  # Debian 12 - CPU - amd64
+  debian12-cpu-amd64:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.debian
+      args:
+        DEBIAN_VERSION: "12"
+        BACKEND: "cpu"
+        ARCH: "amd64"
+        ARRAYFIRE_VERSION: "3.10"
+        ARRAYFIRE_RELEASE: "v3.10.0"
+    image: arrayfire:debian12-cpu-amd64
+    volumes:
+      - ./docker/output/debian12-cpu-amd64:/output
+    command: "sh -c 'cp -r /opt/arrayfire/* /output/ 2>/dev/null; find / -name \"*.deb\" -o -name \"*.rpm\" | xargs -I {} cp {} /output/ 2>/dev/null || true'"
+
+  # Debian 12 - CUDA - amd64
+  debian12-cuda-amd64:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.debian
+      args:
+        DEBIAN_VERSION: "12"
+        BACKEND: "cuda"
+        ARCH: "amd64"
+        ARRAYFIRE_VERSION: "3.10"
+        ARRAYFIRE_RELEASE: "v3.10.0"
+    image: arrayfire:debian12-cuda-amd64
+    volumes:
+      - ./docker/output/debian12-cuda-amd64:/output
+    command: "sh -c 'cp -r /opt/arrayfire/* /output/ 2>/dev/null; find / -name \"*.deb\" -o -name \"*.rpm\" | xargs -I {} cp {} /output/ 2>/dev/null || true'"
+
+  # Debian 12 - OpenCL - amd64
+  debian12-opencl-amd64:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.debian
+      args:
+        DEBIAN_VERSION: "12"
+        BACKEND: "opencl"
+        ARCH: "amd64"
+        ARRAYFIRE_VERSION: "3.10"
+        ARRAYFIRE_RELEASE: "v3.10.0"
+    image: arrayfire:debian12-opencl-amd64
+    volumes:
+      - ./docker/output/debian12-opencl-amd64:/output
+    command: "sh -c 'cp -r /opt/arrayfire/* /output/ 2>/dev/null; find / -name \"*.deb\" -o -name \"*.rpm\" | xargs -I {} cp {} /output/ 2>/dev/null || true'"
+
+  # RHEL 9 - All backends - amd64
+  rhel9-all-amd64:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.rhel
+      args:
+        RHEL_VERSION: "9"
+        BACKEND: "all"
+        ARCH: "amd64"
+        ARRAYFIRE_VERSION: "3.10"
+        ARRAYFIRE_RELEASE: "v3.10.0"
+    image: arrayfire:rhel9-all-amd64
+    volumes:
+      - ./docker/output/rhel9-all-amd64:/output
+    command: "sh -c 'cp -r /opt/arrayfire/* /output/ 2>/dev/null; find / -name \"*.deb\" -o -name \"*.rpm\" | xargs -I {} cp {} /output/ 2>/dev/null || true'"
+
+  # RHEL 9 - CUDA - amd64
+  rhel9-cuda-amd64:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.rhel
+      args:
+        RHEL_VERSION: "9"
+        BACKEND: "cuda"
+        ARCH: "amd64"
+        ARRAYFIRE_VERSION: "3.10"
+        ARRAYFIRE_RELEASE: "v3.10.0"
+    image: arrayfire:rhel9-cuda-amd64
+    volumes:
+      - ./docker/output/rhel9-cuda-amd64:/output
+    command: "sh -c 'cp -r /opt/arrayfire/* /output/ 2>/dev/null; find / -name \"*.deb\" -o -name \"*.rpm\" | xargs -I {} cp {} /output/ 2>/dev/null || true'"

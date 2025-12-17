@@ -8,7 +8,7 @@ ARG ARRAYFIRE_RELEASE=v3.10.0
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Copy dependency script and install all packages in one layer
-COPY get-deb-packages /usr/local/bin/get-deb-packages
+COPY docker/get-deb-packages /usr/local/bin/get-deb-packages
 RUN chmod +x /usr/local/bin/get-deb-packages && \
     # Build package list based on backend
     PKGS="$(/usr/local/bin/get-deb-packages --base --boost --graphics --freeimage --docs --extras)" && \

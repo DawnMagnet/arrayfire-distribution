@@ -12,7 +12,7 @@ ARG ARRAYFIRE_VERSION=3.10
 ARG ARRAYFIRE_RELEASE=v3.10.0
 
 # Copy dependency script and install all packages in one layer
-COPY get-rhel-packages /usr/local/bin/get-rhel-packages
+COPY docker/get-rhel-packages /usr/local/bin/get-rhel-packages
 RUN chmod +x /usr/local/bin/get-rhel-packages && \
     # Enable EPEL and CRB (CodeReady Builder) first
     dnf install -y epel-release && \

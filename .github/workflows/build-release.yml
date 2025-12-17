@@ -45,41 +45,11 @@ jobs:
       - name: Determine build matrix
         id: set-matrix
         run: |
-          # MVP matrix (default)
-          MVP='[
-            {"distro": "debian", "version": "12", "backend": "all", "arch": "amd64"},
-            {"distro": "debian", "version": "12", "backend": "all", "arch": "arm64"},
-            {"distro": "debian", "version": "12", "backend": "cpu", "arch": "amd64"},
-            {"distro": "debian", "version": "12", "backend": "cpu", "arch": "arm64"},
-            {"distro": "debian", "version": "12", "backend": "cuda", "arch": "amd64"},
-            {"distro": "debian", "version": "12", "backend": "opencl", "arch": "amd64"},
-            {"distro": "debian", "version": "12", "backend": "opencl", "arch": "arm64"},
-            {"distro": "rhel", "version": "9", "backend": "all", "arch": "amd64"},
-            {"distro": "rhel", "version": "9", "backend": "cuda", "arch": "amd64"}
-          ]'
+          # MVP matrix (default) - single line JSON
+          MVP='[{"distro":"debian","version":"12","backend":"all","arch":"amd64"},{"distro":"debian","version":"12","backend":"all","arch":"arm64"},{"distro":"debian","version":"12","backend":"cpu","arch":"amd64"},{"distro":"debian","version":"12","backend":"cpu","arch":"arm64"},{"distro":"debian","version":"12","backend":"cuda","arch":"amd64"},{"distro":"debian","version":"12","backend":"opencl","arch":"amd64"},{"distro":"debian","version":"12","backend":"opencl","arch":"arm64"},{"distro":"rhel","version":"9","backend":"all","arch":"amd64"},{"distro":"rhel","version":"9","backend":"cuda","arch":"amd64"}]'
 
-          # Full matrix (extended)
-          FULL='[
-            {"distro": "debian", "version": "11", "backend": "all", "arch": "amd64"},
-            {"distro": "debian", "version": "11", "backend": "all", "arch": "arm64"},
-            {"distro": "debian", "version": "11", "backend": "cpu", "arch": "amd64"},
-            {"distro": "debian", "version": "11", "backend": "cpu", "arch": "arm64"},
-            {"distro": "debian", "version": "11", "backend": "cuda", "arch": "amd64"},
-            {"distro": "debian", "version": "11", "backend": "opencl", "arch": "amd64"},
-            {"distro": "debian", "version": "12", "backend": "all", "arch": "amd64"},
-            {"distro": "debian", "version": "12", "backend": "all", "arch": "arm64"},
-            {"distro": "debian", "version": "12", "backend": "cpu", "arch": "amd64"},
-            {"distro": "debian", "version": "12", "backend": "cpu", "arch": "arm64"},
-            {"distro": "debian", "version": "12", "backend": "cuda", "arch": "amd64"},
-            {"distro": "debian", "version": "12", "backend": "opencl", "arch": "amd64"},
-            {"distro": "debian", "version": "12", "backend": "opencl", "arch": "arm64"},
-            {"distro": "debian", "version": "13", "backend": "all", "arch": "amd64"},
-            {"distro": "debian", "version": "13", "backend": "all", "arch": "arm64"},
-            {"distro": "rhel", "version": "8", "backend": "all", "arch": "amd64"},
-            {"distro": "rhel", "version": "9", "backend": "all", "arch": "amd64"},
-            {"distro": "rhel", "version": "9", "backend": "cuda", "arch": "amd64"},
-            {"distro": "rhel", "version": "10", "backend": "all", "arch": "amd64"}
-          ]'
+          # Full matrix (extended) - single line JSON
+          FULL='[{"distro":"debian","version":"11","backend":"all","arch":"amd64"},{"distro":"debian","version":"11","backend":"all","arch":"arm64"},{"distro":"debian","version":"11","backend":"cpu","arch":"amd64"},{"distro":"debian","version":"11","backend":"cpu","arch":"arm64"},{"distro":"debian","version":"11","backend":"cuda","arch":"amd64"},{"distro":"debian","version":"11","backend":"opencl","arch":"amd64"},{"distro":"debian","version":"12","backend":"all","arch":"amd64"},{"distro":"debian","version":"12","backend":"all","arch":"arm64"},{"distro":"debian","version":"12","backend":"cpu","arch":"amd64"},{"distro":"debian","version":"12","backend":"cpu","arch":"arm64"},{"distro":"debian","version":"12","backend":"cuda","arch":"amd64"},{"distro":"debian","version":"12","backend":"opencl","arch":"amd64"},{"distro":"debian","version":"12","backend":"opencl","arch":"arm64"},{"distro":"debian","version":"13","backend":"all","arch":"amd64"},{"distro":"debian","version":"13","backend":"all","arch":"arm64"},{"distro":"rhel","version":"8","backend":"all","arch":"amd64"},{"distro":"rhel","version":"9","backend":"all","arch":"amd64"},{"distro":"rhel","version":"9","backend":"cuda","arch":"amd64"},{"distro":"rhel","version":"10","backend":"all","arch":"amd64"}]'
 
           # Determine which matrix to use
           if [[ "${{ github.event.inputs.build_full }}" == "true" ]]; then

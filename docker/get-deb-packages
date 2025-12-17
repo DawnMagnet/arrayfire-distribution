@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+
+# ArrayFire build dependencies selector for Debian/Ubuntu images.
+# Usage examples:
+#   sudo apt-get update && sudo apt-get install -y $(./get-deb-packages --cpu)
+#   sudo apt-get install -y $(./get-deb-packages --opencl --graphics --extras)
+#   # CUDA is provided by NGC base images; --cuda prints nothing but a hint.
+#   sudo apt-get install -y $(./get-deb-packages --all)
+
+set -euo pipefail
+
+show_help() {
+  cat <<EOF
+Usage: ./get-deb-packages [options]
+
+Options (combine as needed):
+  --base                Include base build tools (default: included).
+  --boost               Include common Boost dev packages (default: included).
+  --graphics            Include OpenGL/GLX headers and helpers for CMake checks.
+  --cpu                 Include CPU math libs (OpenBLAS/LAPACK/FFTW).
+  --opencl              Include OpenCL headers and ICD loader/dev packages.
+  --cuda                No apt packages added; prefer NGC CUDA images. Prints hint.
+  --oneapi              No apt packages added; oneAPI install not handled here.
+  --freeimage           Include libfreeimage-dev.
+  --docs                Include doxygen and graphviz.
+  --extras              Include ccache.
+  --all                 base+boost+graphics+cpu+opencl+freeimage+docs+extras.
+  --minimal             Only base build tools; skip everything else.
+  -h|--help             Show this help.
+
+Notes:
+  - For CUDA builds, use nvcr.io NGC CUDA devel images and skip --cuda here.
+  - Debian 12 does not provide libboost-compute-dev; OpenCL does not need it.
+EOF
+}
+
+require_unique() {
+  local p
+  for p in "$@"; do
+    if [[ -z "${PKG_SEEN["$p"]+x}" ]]; then
+      PKG_LIST+=("$p")
+      PKG_SEEN["$p"]=1
+    fi
+  done
+}
+
+declare -a PKG_LIST=()
+declare -A PKG_SEEN=()
+
+INCLUDE_BASE=1
+INCLUDE_BOOST=1
+INCLUDE_GRAPHICS=0
+INCLUDE_CPU=0
+INCLUDE_OPENCL=0
+REQUEST_CUDA=0
+REQUEST_ONEAPI=0
+INCLUDE_FREEIMAGE=0
+INCLUDE_DOCS=0
+INCLUDE_EXTRAS=0
+
+if [[ $# -eq 0 ]]; then
+  show_help
+  exit 0
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --base)
+      INCLUDE_BASE=1; shift ;;
+    --boost)
+      INCLUDE_BOOST=1; shift ;;
+    --graphics)
+      INCLUDE_GRAPHICS=1; shift ;;
+    --cpu)
+      INCLUDE_CPU=1; shift ;;
+    --opencl)
+      INCLUDE_OPENCL=1; shift ;;
+    --cuda)
+      REQUEST_CUDA=1; shift ;;
+    --oneapi)
+      REQUEST_ONEAPI=1; shift ;;
+    --freeimage)
+      INCLUDE_FREEIMAGE=1; shift ;;
+    --docs)
+      INCLUDE_DOCS=1; shift ;;
+    --extras)
+      INCLUDE_EXTRAS=1; shift ;;
+    --all)
+      INCLUDE_GRAPHICS=1
+      INCLUDE_CPU=1
+      INCLUDE_OPENCL=1
+      INCLUDE_FREEIMAGE=1
+      INCLUDE_DOCS=1
+      INCLUDE_EXTRAS=1
+      shift ;;
+    --minimal)
+      INCLUDE_BOOST=0
+      INCLUDE_GRAPHICS=0
+      INCLUDE_CPU=0
+      INCLUDE_OPENCL=0
+      REQUEST_CUDA=0
+      REQUEST_ONEAPI=0
+      INCLUDE_FREEIMAGE=0
+      INCLUDE_DOCS=0
+      INCLUDE_EXTRAS=0
+      shift ;;
+    -h|--help)
+      show_help; exit 0 ;;
+    *)
+      echo "Unknown option: $1" >&2
+      show_help
+      exit 2 ;;
+  esac
+done
+
+# Base toolchain
+if [[ $INCLUDE_BASE -eq 1 ]]; then
+  require_unique \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    ca-certificates \
+    pkg-config \
+    ninja-build
+fi
+
+# Boost common
+if [[ $INCLUDE_BOOST -eq 1 ]]; then
+  require_unique \
+    libboost-dev \
+    libboost-system-dev \
+    libboost-stacktrace-dev
+fi
+
+# Graphics/GL headers to satisfy CMake OpenGL checks
+if [[ $INCLUDE_GRAPHICS -eq 1 ]]; then
+  require_unique \
+    libgl1-mesa-dev \
+    mesa-common-dev \
+    libglx-dev \
+    libx11-dev \
+    libxi-dev \
+    libxrandr-dev \
+    libxinerama-dev \
+    libxcursor-dev \
+    libglew-dev
+fi
+
+# CPU math libraries
+if [[ $INCLUDE_CPU -eq 1 ]]; then
+  require_unique \
+    libopenblas-dev \
+    liblapack-dev \
+    liblapacke-dev \
+    libfftw3-dev \
+    libfftw3-mpi-dev
+fi
+
+# OpenCL headers and ICD loader (no Boost.Compute on Debian 12)
+if [[ $INCLUDE_OPENCL -eq 1 ]]; then
+  require_unique \
+    libboost-program-options-dev \
+    opencl-headers \
+    ocl-icd-libopencl1 \
+    ocl-icd-dev
+fi
+
+# CUDA and oneAPI hints (no apt packages here)
+if [[ $REQUEST_CUDA -eq 1 ]]; then
+  echo "[hint] CUDA toolchain should come from nvcr.io NGC images; no apt packages added." >&2
+fi
+if [[ $REQUEST_ONEAPI -eq 1 ]]; then
+  echo "[hint] oneAPI install not handled by this script; use Intel's official repo/installer." >&2
+fi
+
+# Optional packages
+if [[ $INCLUDE_FREEIMAGE -eq 1 ]]; then
+  require_unique libfreeimage-dev
+fi
+if [[ $INCLUDE_DOCS -eq 1 ]]; then
+  require_unique doxygen graphviz
+fi
+if [[ $INCLUDE_EXTRAS -eq 1 ]]; then
+  require_unique ccache
+fi
+
+# Print the space-separated list (safe for command substitution)
+printf '%s\n' "${PKG_LIST[*]}"

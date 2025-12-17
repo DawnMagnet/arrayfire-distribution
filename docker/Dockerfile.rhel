@@ -1,85 +1,48 @@
-# ArrayFire Multi-Backend Builder for RHEL/CentOS
-# Supports: RHEL 8/9/10
-ARG RHEL_VERSION=9
+# ArrayFire Multi-Backend Builder for Rocky Linux (NGC CUDA Base)
+# Uses NVIDIA NGC CUDA image with cuDNN support
+# Args: BACKEND, ARCH, ARRAYFIRE_VERSION, ARRAYFIRE_RELEASE
 ARG BACKEND=all
 ARG ARCH=amd64
 
-FROM quay.io/centos/centos:stream${RHEL_VERSION} AS builder
+FROM nvcr.io/nvidia/cuda:12.9.1-cudnn-devel-rockylinux9 AS builder
 
-ARG RHEL_VERSION
 ARG BACKEND=all
 ARG ARCH=amd64
 ARG ARRAYFIRE_VERSION=3.10
 ARG ARRAYFIRE_RELEASE=v3.10.0
 
-# Enable PowerTools repository for additional packages
-RUN dnf install -y \
-    epel-release \
-    && dnf config-manager --set-enabled powertools
-
-# Install base build dependencies
-RUN dnf install -y \
-    gcc-c++ \
-    cmake \
-    git \
-    wget \
-    ninja-build \
-    pkg-config \
-    && dnf clean all
-
-# Install common dependencies
-RUN dnf install -y \
-    boost-devel \
-    && dnf clean all
-
-# CPU backend dependencies
-RUN if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "cpu" ]; then \
-    dnf install -y \
-    openblas-devel \
-    lapack-devel \
-    lapacke-devel \
-    fftw-devel \
-    && dnf clean all; \
-    fi
-
-# CUDA backend dependencies (if available in repo)
-RUN if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "cuda" ]; then \
-    dnf install -y \
-    cuda-toolkit-devel \
-    libcublas-devel \
-    libcufft-devel \
-    libcusolver-devel \
-    libcusparse-devel 2>/dev/null || true; \
-    dnf clean all; \
-    fi
-
-# OpenCL backend dependencies
-RUN if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "opencl" ]; then \
-    dnf install -y \
-    opencl-headers \
-    ocl-icd-devel \
-    && dnf clean all; \
-    fi
-
-# oneAPI backend (Intel SYCL)
-RUN if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "oneapi" ]; then \
-    dnf install -y \
-    wget && \
-    wget -qO - https://repositories.intel.com/graphics/intel-graphics.key | rpm --import - && \
-    dnf install -y \
-    intel-oneapi-dpcpp-cpp-compiler \
-    intel-oneapi-mkl-devel \
-    intel-oneapi-tbb-devel \
-    && dnf clean all; \
-    fi
-
-# Optional dependencies
-RUN dnf install -y \
-    freeimage-devel \
-    doxygen \
-    graphviz \
-    ccache \
-    && dnf clean all
+# Copy dependency script and install all packages in one layer
+COPY get-rhel-packages /usr/local/bin/get-rhel-packages
+RUN chmod +x /usr/local/bin/get-rhel-packages && \
+    # Enable EPEL and CRB (CodeReady Builder) first
+    dnf install -y epel-release && \
+    dnf config-manager --set-enabled crb 2>/dev/null || \
+    dnf config-manager --set-enabled powertools 2>/dev/null || true && \
+    # Build package list based on backend
+    PKGS="$(/usr/local/bin/get-rhel-packages --base --boost --graphics --freeimage --docs --extras)" && \
+    if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "cpu" ]; then \
+    PKGS="$PKGS $(/usr/local/bin/get-rhel-packages --cpu)"; \
+    fi && \
+    if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "opencl" ]; then \
+    PKGS="$PKGS $(/usr/local/bin/get-rhel-packages --opencl)"; \
+    fi && \
+    # oneAPI special handling (if needed)
+    if [ "${BACKEND}" = "oneapi" ]; then \
+    wget -qO - https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | rpm --import - && \
+    tee /etc/yum.repos.d/oneAPI.repo <<EOF2
+    [oneAPI]
+    name=Intel oneAPI repository
+    baseurl=https://yum.repos.intel.com/oneapi
+    enabled=1
+    gpgcheck=1
+    repo_gpgcheck=1
+    gpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+    EOF2
+    export PKGS="$PKGS intel-oneapi-dpcpp-cpp-compiler intel-oneapi-mkl-devel intel-oneapi-tbb-devel"; \
+    fi && \
+    # Install all collected packages
+    dnf install -y $PKGS && \
+    dnf clean all
 
 # Configure ccache (10GB cache limit)
 RUN mkdir -p /root/.ccache && \
@@ -107,8 +70,9 @@ RUN if [ "${BACKEND}" = "all" ]; then \
     -DAF_BUILD_OPENCL=ON \
     -DAF_BUILD_ONEAPI=OFF \
     -DAF_COMPUTE_LIBRARY=FFTW \
-    -DAF_WITH_CUDNN=OFF \
+    -DAF_WITH_CUDNN=ON \
     -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_FORGE=OFF \
     -DAF_BUILD_TESTS=ON \
     -DAF_BUILD_DOCS=OFF \
     -DAF_WITH_LOGGING=ON \
@@ -136,8 +100,9 @@ RUN if [ "${BACKEND}" = "all" ]; then \
     -DAF_BUILD_CUDA=ON \
     -DAF_BUILD_OPENCL=OFF \
     -DAF_BUILD_ONEAPI=OFF \
-    -DAF_WITH_CUDNN=OFF \
+    -DAF_WITH_CUDNN=ON \
     -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_FORGE=OFF \
     -DAF_BUILD_TESTS=ON \
     -DAF_BUILD_DOCS=OFF \
     -DCMAKE_INSTALL_PREFIX=/opt/arrayfire; \
@@ -151,6 +116,7 @@ RUN if [ "${BACKEND}" = "all" ]; then \
     -DAF_BUILD_OPENCL=ON \
     -DAF_BUILD_ONEAPI=OFF \
     -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_FORGE=OFF \
     -DAF_BUILD_TESTS=ON \
     -DAF_BUILD_DOCS=OFF \
     -DCMAKE_INSTALL_PREFIX=/opt/arrayfire; \
@@ -166,6 +132,7 @@ RUN if [ "${BACKEND}" = "all" ]; then \
     -DAF_BUILD_ONEAPI=ON \
     -DAF_COMPUTE_LIBRARY=Intel-MKL \
     -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_FORGE=OFF \
     -DAF_BUILD_TESTS=ON \
     -DAF_BUILD_DOCS=OFF \
     -DCMAKE_INSTALL_PREFIX=/opt/arrayfire; \
@@ -180,9 +147,8 @@ RUN cd /src/arrayfire/build && \
 RUN cd /src/arrayfire/build && cmake --install .
 
 # Package stage - Build RPM
-FROM quay.io/centos/centos:stream${RHEL_VERSION} AS packager
+FROM rockylinux:9 AS packager
 
-ARG RHEL_VERSION
 ARG BACKEND=all
 ARG ARCH=amd64
 ARG ARRAYFIRE_VERSION=3.10

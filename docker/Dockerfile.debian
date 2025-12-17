@@ -1,94 +1,41 @@
-# ArrayFire Multi-Backend Builder for Debian
-# Supports: Debian 11/12/13
-# Args: DEBIAN_VERSION, BACKEND, ARCH
-ARG DEBIAN_VERSION=12
-ARG BACKEND=all
-ARG ARCH=amd64
+FROM nvcr.io/nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04 AS builder
 
-FROM debian:${DEBIAN_VERSION}-slim AS builder
-
-ARG DEBIAN_VERSION
 ARG BACKEND=all
 ARG ARCH=amd64
 ARG ARRAYFIRE_VERSION=3.10
 ARG ARRAYFIRE_RELEASE=v3.10.0
 
-# Install base build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    cmake \
-    git \
-    wget \
-    ca-certificates \
-    pkg-config \
-    ninja-build \
-    && rm -rf /var/lib/apt/lists/*
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install common base dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libboost-dev \
-    libboost-system-dev \
-    libboost-stacktrace-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Conditional dependencies based on BACKEND
-# CPU backend
-RUN if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "cpu" ]; then \
-    apt-get update && apt-get install -y --no-install-recommends \
-    libopenblas-dev \
-    liblapack-dev \
-    liblapacke-dev \
-    libfftw3-dev \
-    libfftw3-mpi-dev \
-    && rm -rf /var/lib/apt/lists/*; \
-    fi
-
-# CUDA backend
-RUN if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "cuda" ]; then \
-    apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common && \
+# Copy dependency script and install all packages in one layer
+COPY get-deb-packages /usr/local/bin/get-deb-packages
+RUN chmod +x /usr/local/bin/get-deb-packages && \
+    # Build package list based on backend
+    PKGS="$(/usr/local/bin/get-deb-packages --base --boost --graphics --freeimage --docs --extras)" && \
+    if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "cpu" ]; then \
+    PKGS="$PKGS $(/usr/local/bin/get-deb-packages --cpu)"; \
+    fi && \
+    if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "opencl" ]; then \
+    PKGS="$PKGS $(/usr/local/bin/get-deb-packages --opencl)"; \
+    fi && \
+    # oneAPI special handling (if needed)
+    if [ "${BACKEND}" = "oneapi" ]; then \
+    apt-get update && \
+    apt-get install -y --no-install-recommends wget && \
+    wget -qO - https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor > /usr/share/keyrings/oneapi-archive-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | \
+    tee /etc/apt/sources.list.d/oneAPI.list && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
-    nvidia-cuda-toolkit \
-    nvidia-cuda-dev \
-    libcublas-dev \
-    libcufft-dev \
-    libcusolver-dev \
-    libcusparse-dev \
-    && rm -rf /var/lib/apt/lists/*; \
-    fi
-
-# OpenCL backend
-RUN if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "opencl" ]; then \
-    apt-get update && apt-get install -y --no-install-recommends \
-    libboost-program-options-dev \
-    libboost-compute-dev \
-    opencl-headers \
-    ocl-icd-libopencl1 \
-    ocl-icd-dev \
-    && rm -rf /var/lib/apt/lists/*; \
-    fi
-
-# oneAPI backend (Intel SYCL)
-RUN if [ "${BACKEND}" = "all" ] || [ "${BACKEND}" = "oneapi" ]; then \
-    apt-get update && apt-get install -y --no-install-recommends \
-    wget && \
-    wget -qO - https://repositories.intel.com/graphics/intel-graphics.key | apt-key add - && \
-    echo "deb [arch=amd64] https://repositories.intel.com/graphics/ubuntu jammy main" | \
-    tee /etc/apt/sources.list.d/intel-graphics.sources && \
-    apt-get update && apt-get install -y --no-install-recommends \
     intel-oneapi-dpcpp-cpp-compiler \
     intel-oneapi-mkl-devel \
-    intel-oneapi-tbb-devel \
-    && rm -rf /var/lib/apt/lists/*; \
-    fi
-
-# Install optional dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libfreeimage-dev \
-    doxygen \
-    graphviz \
-    ccache \
-    && rm -rf /var/lib/apt/lists/*
+    intel-oneapi-tbb-devel && \
+    rm -rf /var/lib/apt/lists/*; \
+    fi && \
+    # Install all collected packages
+    apt-get update && \
+    apt-get install -y --no-install-recommends $PKGS && \
+    rm -rf /var/lib/apt/lists/*
 
 # Configure ccache (10GB cache limit)
 RUN mkdir -p /root/.ccache && \
@@ -116,8 +63,9 @@ RUN if [ "${BACKEND}" = "all" ]; then \
     -DAF_BUILD_OPENCL=ON \
     -DAF_BUILD_ONEAPI=OFF \
     -DAF_COMPUTE_LIBRARY=FFTW \
-    -DAF_WITH_CUDNN=OFF \
+    -DAF_WITH_CUDNN=ON \
     -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_FORGE=OFF \
     -DAF_BUILD_TESTS=ON \
     -DAF_BUILD_DOCS=OFF \
     -DAF_WITH_LOGGING=ON \
@@ -133,6 +81,7 @@ RUN if [ "${BACKEND}" = "all" ]; then \
     -DAF_BUILD_ONEAPI=OFF \
     -DAF_COMPUTE_LIBRARY=FFTW \
     -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_FORGE=OFF \
     -DAF_BUILD_TESTS=ON \
     -DAF_BUILD_DOCS=OFF \
     -DCMAKE_INSTALL_PREFIX=/opt/arrayfire; \
@@ -145,8 +94,9 @@ RUN if [ "${BACKEND}" = "all" ]; then \
     -DAF_BUILD_CUDA=ON \
     -DAF_BUILD_OPENCL=OFF \
     -DAF_BUILD_ONEAPI=OFF \
-    -DAF_WITH_CUDNN=OFF \
+    -DAF_WITH_CUDNN=ON \
     -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_FORGE=OFF \
     -DAF_BUILD_TESTS=ON \
     -DAF_BUILD_DOCS=OFF \
     -DCMAKE_INSTALL_PREFIX=/opt/arrayfire; \
@@ -160,6 +110,7 @@ RUN if [ "${BACKEND}" = "all" ]; then \
     -DAF_BUILD_OPENCL=ON \
     -DAF_BUILD_ONEAPI=OFF \
     -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_FORGE=OFF \
     -DAF_BUILD_TESTS=ON \
     -DAF_BUILD_DOCS=OFF \
     -DCMAKE_INSTALL_PREFIX=/opt/arrayfire; \
@@ -175,6 +126,7 @@ RUN if [ "${BACKEND}" = "all" ]; then \
     -DAF_BUILD_ONEAPI=ON \
     -DAF_COMPUTE_LIBRARY=Intel-MKL \
     -DAF_BUILD_EXAMPLES=OFF \
+    -DAF_BUILD_FORGE=OFF \
     -DAF_BUILD_TESTS=ON \
     -DAF_BUILD_DOCS=OFF \
     -DCMAKE_INSTALL_PREFIX=/opt/arrayfire; \
@@ -189,12 +141,13 @@ RUN cd /src/arrayfire/build && \
 RUN cd /src/arrayfire/build && cmake --install .
 
 # Package stage
-FROM debian:${DEBIAN_VERSION}-slim AS packager
+FROM ubuntu:24.04 AS packager
 
-ARG DEBIAN_VERSION
 ARG BACKEND=all
 ARG ARCH=amd64
 ARG ARRAYFIRE_VERSION=3.10
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install packaging tools
 RUN apt-get update && apt-get install -y --no-install-recommends \

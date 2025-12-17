@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+
+# ArrayFire build dependencies selector for RHEL/CentOS/Rocky/AlmaLinux images.
+# Usage examples:
+#   sudo dnf install -y $(./get-rhel-packages --cpu)
+#   sudo dnf install -y $(./get-rhel-packages --opencl --graphics --extras)
+#   sudo dnf install -y $(./get-rhel-packages --all)
+
+set -euo pipefail
+
+show_help() {
+  cat <<EOF
+Usage: ./get-rhel-packages [options]
+
+Options (combine as needed):
+  --base                Include base build tools (default: included).
+  --boost               Include Boost dev packages (default: included).
+  --graphics            Include OpenGL/GLX/Mesa headers for CMake checks.
+  --cpu                 Include CPU math libs (OpenBLAS/LAPACK/FFTW).
+  --opencl              Include OpenCL headers and ICD loader/dev packages.
+  --cuda                No dnf packages added; prefer NGC CUDA images. Prints hint.
+  --oneapi              No dnf packages added; use Intel's official repo.
+  --freeimage           Include freeimage-devel.
+  --docs                Include doxygen and graphviz.
+  --extras              Include ccache.
+  --all                 base+boost+graphics+cpu+opencl+freeimage+docs+extras.
+  --minimal             Only base build tools; skip everything else.
+  -h|--help             Show this help.
+
+Notes:
+  - For CUDA builds, use nvcr.io NGC CUDA devel images and skip --cuda here.
+  - Requires EPEL repository for some packages (epel-release).
+  - PowerTools/CRB repo may be needed for lapacke-devel on RHEL 8/9.
+EOF
+}
+
+require_unique() {
+  local p
+  for p in "$@"; do
+    if [[ -z "${PKG_SEEN["$p"]+x}" ]]; then
+      PKG_LIST+=("$p")
+      PKG_SEEN["$p"]=1
+    fi
+  done
+}
+
+declare -a PKG_LIST=()
+declare -A PKG_SEEN=()
+
+INCLUDE_BASE=1
+INCLUDE_BOOST=1
+INCLUDE_GRAPHICS=0
+INCLUDE_CPU=0
+INCLUDE_OPENCL=0
+REQUEST_CUDA=0
+REQUEST_ONEAPI=0
+INCLUDE_FREEIMAGE=0
+INCLUDE_DOCS=0
+INCLUDE_EXTRAS=0
+
+if [[ $# -eq 0 ]]; then
+  show_help
+  exit 0
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --base)
+      INCLUDE_BASE=1; shift ;;
+    --boost)
+      INCLUDE_BOOST=1; shift ;;
+    --graphics)
+      INCLUDE_GRAPHICS=1; shift ;;
+    --cpu)
+      INCLUDE_CPU=1; shift ;;
+    --opencl)
+      INCLUDE_OPENCL=1; shift ;;
+    --cuda)
+      REQUEST_CUDA=1; shift ;;
+    --oneapi)
+      REQUEST_ONEAPI=1; shift ;;
+    --freeimage)
+      INCLUDE_FREEIMAGE=1; shift ;;
+    --docs)
+      INCLUDE_DOCS=1; shift ;;
+    --extras)
+      INCLUDE_EXTRAS=1; shift ;;
+    --all)
+      INCLUDE_GRAPHICS=1
+      INCLUDE_CPU=1
+      INCLUDE_OPENCL=1
+      INCLUDE_FREEIMAGE=1
+      INCLUDE_DOCS=1
+      INCLUDE_EXTRAS=1
+      shift ;;
+    --minimal)
+      INCLUDE_BOOST=0
+      INCLUDE_GRAPHICS=0
+      INCLUDE_CPU=0
+      INCLUDE_OPENCL=0
+      REQUEST_CUDA=0
+      REQUEST_ONEAPI=0
+      INCLUDE_FREEIMAGE=0
+      INCLUDE_DOCS=0
+      INCLUDE_EXTRAS=0
+      shift ;;
+    -h|--help)
+      show_help; exit 0 ;;
+    *)
+      echo "Unknown option: $1" >&2
+      show_help
+      exit 2 ;;
+  esac
+done
+
+# Base toolchain
+if [[ $INCLUDE_BASE -eq 1 ]]; then
+  require_unique \
+    gcc-c++ \
+    cmake \
+    git \
+    wget \
+    ca-certificates \
+    pkg-config \
+    ninja-build
+fi
+
+# Boost
+if [[ $INCLUDE_BOOST -eq 1 ]]; then
+  require_unique boost-devel
+fi
+
+# Graphics/GL headers to satisfy CMake OpenGL checks
+if [[ $INCLUDE_GRAPHICS -eq 1 ]]; then
+  require_unique \
+    mesa-libGL-devel \
+    mesa-libGLU-devel \
+    libX11-devel \
+    libXi-devel \
+    libXrandr-devel \
+    libXinerama-devel \
+    libXcursor-devel \
+    glew-devel
+fi
+
+# CPU math libraries
+if [[ $INCLUDE_CPU -eq 1 ]]; then
+  require_unique \
+    openblas-devel \
+    lapack-devel \
+    lapacke-devel \
+    fftw-devel
+fi
+
+# OpenCL headers and ICD loader
+if [[ $INCLUDE_OPENCL -eq 1 ]]; then
+  require_unique \
+    boost-program-options \
+    opencl-headers \
+    ocl-icd-devel
+fi
+
+# CUDA and oneAPI hints (no dnf packages here)
+if [[ $REQUEST_CUDA -eq 1 ]]; then
+  echo "[hint] CUDA toolchain should come from nvcr.io NGC images; no dnf packages added." >&2
+fi
+if [[ $REQUEST_ONEAPI -eq 1 ]]; then
+  echo "[hint] oneAPI install not handled by this script; use Intel's official repo/installer." >&2
+fi
+
+# Optional packages
+if [[ $INCLUDE_FREEIMAGE -eq 1 ]]; then
+  require_unique freeimage-devel
+fi
+if [[ $INCLUDE_DOCS -eq 1 ]]; then
+  require_unique doxygen graphviz
+fi
+if [[ $INCLUDE_EXTRAS -eq 1 ]]; then
+  require_unique ccache
+fi
+
+# Print the space-separated list (safe for command substitution)
+printf '%s\n' "${PKG_LIST[*]}"
